@@ -1,0 +1,14 @@
+[package]
+authors = ["Erik Johnston"]
+name = "signedjson"
+version = "0.1.0"
+
+[dependencies]
+rustc-serialize = "0.3.19"
+serde = "0.7.0"
+serde_json = "0.7.0"
+sodiumoxide = "0.0.10"
+
+[dependencies.indolentjson]
+git = "https://github.com/NegativeMjark/indolentjson-rust.git"
+optional = false
