@@ -16,6 +16,9 @@ pub trait Signatures {
         &'a self,
         entity: &'a str
     ) -> Box<Iterator<Item = (&'a str, &sign::Signature)> + 'a>;
+    fn get_signatures<'a>(&'a self)
+        -> Box<Iterator<Item = (&'a str, &'a str, &sign::Signature)> + 'a>;
+    fn get_entities<'a>(&'a self) -> Box<Iterator<Item = &'a str> + 'a>;
 }
 
 pub trait SignaturesMut {
@@ -55,6 +58,17 @@ impl<S> Signatures for BTreeMap<String, BTreeMap<String, S>>
                      })
                      .flat_map(|s| s.iter())
                      .map(|(k, v)| (&k[..], v.deref())))
+    }
+
+    fn get_signatures<'a>(&'a self)
+        -> Box<Iterator<Item = (&'a str, &'a str, &sign::Signature)> + 'a> {
+        Box::new(self.iter()
+                     .flat_map(|(e, sigs)| sigs.iter().map(move |(n, sig)| (e, n, sig)))
+                     .map(|(e, n, sig)| (&e[..], &n[..], sig.deref())))
+    }
+
+    fn get_entities<'a>(&'a self) -> Box<Iterator<Item = &'a str> + 'a> {
+        Box::new(self.keys().map(|s| &s[..]))
     }
 }
 
@@ -201,5 +215,44 @@ impl serde::de::Deserialize for SimpleSigned {
                                             FIELDS,
                                             SimpleSignedVisitor::<D>(PhantomData))
         }
+    }
+}
+
+
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::collections::BTreeMap;
+    use ser::signatures::Base64Signature;
+    use sodiumoxide::crypto::sign;
+    use serde_json;
+    use itertools::Itertools;
+
+    #[test]
+    fn map_sigs() {
+        let map: BTreeMap<String, BTreeMap<String, Base64Signature>> = serde_json::from_slice(br#"{
+            "jki.re":{
+                "ed25519:auto":"X2t7jN0jaJsiZWp57da9GqmQ874QFbukCMSqc5VclaB+2n4i8LPcZDkD6+fzg4tkfpSsiIDogkY4HWv1cnGhAg"
+            }
+        }"#).unwrap();
+
+        let sig = map.get_signature("jki.re", "ed25519:auto").expect("Missing signature");
+
+        let expected_sig_bytes = b"_k{\x8c\xdd#h\x9b\"ejy\xed\xd6\xbd\x1a\xa9\x90\xf3\xbe\x10\x15\xbb\xa4\x08\xc4\xaas\x95\\\x95\xa0~\xda~\"\xf0\xb3\xdcd9\x03\xeb\xe7\xf3\x83\x8bd~\x94\xac\x88\x80\xe8\x82F8\x1dk\xf5rq\xa1\x02";
+        let expected_sig = sign::Signature::from_slice(expected_sig_bytes).unwrap();
+        assert_eq!(sig, &expected_sig);
+
+        assert!(map.get_signature("jki.re", "ed25519:test").is_none());
+        assert!(map.get_signature("example.com", "ed25519:auto").is_none());
+
+        let entities = &map.get_entities().collect_vec();
+        assert_eq!(&entities[..], &["jki.re"]);
+
+        let sigs_for_entites = &map.get_signatures_for_entity("jki.re").collect_vec();
+        assert_eq!(&sigs_for_entites[..], &[("ed25519:auto", &expected_sig)]);
+
+        let entities = &map.get_signatures().collect_vec();
+        assert_eq!(&entities[..], &[("jki.re", "ed25519:auto", &expected_sig)]);
     }
 }

@@ -12,3 +12,6 @@ sodiumoxide = "0.0.10"
 [dependencies.indolentjson]
 git = "https://github.com/NegativeMjark/indolentjson-rust.git"
 optional = false
+
+[dev-dependencies]
+itertools = "0.4.13"
