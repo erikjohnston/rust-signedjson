@@ -20,6 +20,7 @@ pub trait Signatures {
     fn get_signatures<'a>(&'a self)
         -> Box<Iterator<Item = (&'a str, &'a str, &sign::Signature)> + 'a>;
     fn get_entities<'a>(&'a self) -> Box<Iterator<Item = &'a str> + 'a>;
+    fn as_map<'a>(&'a self) -> BTreeMap<&'a str, BTreeMap<&'a str, &sign::Signature>>;
 }
 
 pub trait SignaturesMut {
@@ -74,6 +75,17 @@ impl<S> Signatures for BTreeMap<String, BTreeMap<String, S>>
 
     fn get_entities<'a>(&'a self) -> Box<Iterator<Item = &'a str> + 'a> {
         Box::new(self.keys().map(|s| &s[..]))
+    }
+
+    fn as_map<'a>(&'a self) -> BTreeMap<&'a str, BTreeMap<&'a str, &'a sign::Signature>> {
+        self.iter()
+            .map(|(e, v)| {
+                let map = v.iter()
+                           .map(|(n, s)| -> (&'a str, &'a sign::Signature) { (n, s) })
+                           .collect();
+                (e as &'a str, map)
+            })
+            .collect()
     }
 }
 

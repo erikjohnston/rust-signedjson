@@ -1,4 +1,5 @@
 use std::borrow::Cow;
+use std::collections::BTreeMap;
 use std::fmt::Debug;
 use std::ops::Deref;
 
@@ -6,6 +7,7 @@ use serde::{Deserialize, Serialize};
 use serde_json;
 
 use ser::canonicalize;
+use ser::signatures::Base64Signature;
 
 
 use signed::{AsCanonical, GetUnsigned, Signed, SignedMut, Signatures, SignaturesMut};
@@ -54,6 +56,34 @@ impl<'a, T, U> FrozenStruct<'a, T, U>
             canonical: Cow::Owned(try!(canonicalize(bytes))),
             unsigned: unsigned,
         })
+    }
+
+    pub fn serialize(&'a self) -> serde_json::Result<Cow<'a, [u8]>> {
+        if let Some(ref ser) = self.serialized {
+            Ok(Cow::Borrowed(&ser))
+        } else {
+            let mut val: serde_json::Value = try!(serde_json::from_slice(&self.canonical));
+            if let Some(obj) = val.as_object_mut() {
+                let sigs = self.parsed.signatures().as_map();
+                let sigs2: BTreeMap<&str, BTreeMap<&str, Base64Signature>> =
+                    sigs.into_iter()
+                        .map(|(k, v)| {
+                            let m: BTreeMap<&str, Base64Signature> =
+                                v.into_iter()
+                                 .map(|(n, s)| (n, Base64Signature::from(*s)))
+                                 .collect();
+                            (k, m)
+                        })
+                        .collect();
+                obj.insert(String::from("signatures"), serde_json::to_value(&sigs2));
+
+                if let Some(ref unsigned) = self.unsigned {
+                    obj.insert(String::from("unsigned"), serde_json::to_value(unsigned));
+                }
+            }
+            let ser = try!(serde_json::to_vec(&val));
+            Ok(Cow::Owned(ser))
+        }
     }
 }
 
@@ -114,21 +144,36 @@ impl<'a, T, U> Clone for FrozenStruct<'a, T, U>
 #[cfg(test)]
 mod tests {
     use super::*;
-    use signed::{Signed, Signatures, SimpleSigned, AsCanonical};
+    use signed::{Signed, SignedMut, Signatures, SimpleSigned, AsCanonical};
     use sodiumoxide::crypto::sign;
     use serde_json::Value;
 
     #[test]
     fn from_slice() {
         let bytes = br#"{"old_verify_keys":{},"server_name":"jki.re","signatures":{"jki.re":{"ed25519:auto":"X2t7jN0jaJsiZWp57da9GqmQ874QFbukCMSqc5VclaB+2n4i8LPcZDkD6+fzg4tkfpSsiIDogkY4HWv1cnGhAg"}},"tls_fingerprints":[{"sha256":"Big0aXVWZ/m0oEcHddgP4hTriTEvb4Jx6592W1mB5i4"}],"valid_until_ts":1462110302047,"verify_keys":{"ed25519:auto":{"key":"Sr/Vj3FIqyQ2WjJ9fWpUXRdz6fX4oFAjKrDmu198PnI"}}}"#;
-        let frozen: FrozenStruct<SimpleSigned, Value> = FrozenStruct::from_slice(bytes).unwrap();
+        let mut frozen: FrozenStruct<SimpleSigned, Value> = FrozenStruct::from_slice(bytes).unwrap();
 
         assert_eq!(&frozen.as_canonical()[..], &br#"{"old_verify_keys":{},"server_name":"jki.re","tls_fingerprints":[{"sha256":"Big0aXVWZ/m0oEcHddgP4hTriTEvb4Jx6592W1mB5i4"}],"valid_until_ts":1462110302047,"verify_keys":{"ed25519:auto":{"key":"Sr/Vj3FIqyQ2WjJ9fWpUXRdz6fX4oFAjKrDmu198PnI"}}}"#[..]);
 
-        let sig = frozen.signatures().get_signature("jki.re", "ed25519:auto").unwrap();
+        {
+            let sig = frozen.signatures().get_signature("jki.re", "ed25519:auto").unwrap();
 
-        let expected_sig_bytes = b"_k{\x8c\xdd#h\x9b\"ejy\xed\xd6\xbd\x1a\xa9\x90\xf3\xbe\x10\x15\xbb\xa4\x08\xc4\xaas\x95\\\x95\xa0~\xda~\"\xf0\xb3\xdcd9\x03\xeb\xe7\xf3\x83\x8bd~\x94\xac\x88\x80\xe8\x82F8\x1dk\xf5rq\xa1\x02";
-        let expected_sig = sign::Signature::from_slice(expected_sig_bytes).unwrap();
-        assert_eq!(sig, &expected_sig);
+            let expected_sig_bytes = b"_k{\x8c\xdd#h\x9b\"ejy\xed\xd6\xbd\x1a\xa9\x90\xf3\xbe\x10\x15\xbb\xa4\x08\xc4\xaas\x95\\\x95\xa0~\xda~\"\xf0\xb3\xdcd9\x03\xeb\xe7\xf3\x83\x8bd~\x94\xac\x88\x80\xe8\x82F8\x1dk\xf5rq\xa1\x02";
+            let expected_sig = sign::Signature::from_slice(expected_sig_bytes).unwrap();
+            assert_eq!(sig, &expected_sig);
+        }
+
+        assert_eq!(&frozen.serialize().unwrap()[..], &bytes[..]);
+
+        frozen.signatures_mut();
+
+        assert_eq!(&frozen.serialize().unwrap()[..], &bytes[..]);
+
+        let new_sig_bytes = b"_k{\x8c\xdd#h\x9b\"ejy\xed\xd6\xbd\x1a\xa9\x90\xf3\xbe\x10\x15\xbb\xa4\x08\xc4\xaas\x95\\\x95\xa0~\xda~\"\xf0\xb3\xdcd9\x03\xeb\xe7\xf3\x83\x8bd~\x94\xac\x88\x80\xe8\x82F8\x1dk\xf5rq\xa1\x02";
+        let new_sig = sign::Signature::from_slice(new_sig_bytes).unwrap();
+        frozen.signatures_mut().add_signature("jki.re", "ed25519:test", new_sig);
+
+        let new_bytes = br#"{"old_verify_keys":{},"server_name":"jki.re","signatures":{"jki.re":{"ed25519:auto":"X2t7jN0jaJsiZWp57da9GqmQ874QFbukCMSqc5VclaB+2n4i8LPcZDkD6+fzg4tkfpSsiIDogkY4HWv1cnGhAg","ed25519:test":"X2t7jN0jaJsiZWp57da9GqmQ874QFbukCMSqc5VclaB+2n4i8LPcZDkD6+fzg4tkfpSsiIDogkY4HWv1cnGhAg"}},"tls_fingerprints":[{"sha256":"Big0aXVWZ/m0oEcHddgP4hTriTEvb4Jx6592W1mB5i4"}],"valid_until_ts":1462110302047,"verify_keys":{"ed25519:auto":{"key":"Sr/Vj3FIqyQ2WjJ9fWpUXRdz6fX4oFAjKrDmu198PnI"}}}"#;
+        assert_eq!(&frozen.serialize().unwrap()[..], &new_bytes[..]);
     }
 }
