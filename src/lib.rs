@@ -8,12 +8,17 @@ extern crate sodiumoxide;
 extern crate itertools;
 
 pub mod frozen;
+pub mod keys;
 pub mod ser;
 pub mod signed;
 
 
-#[cfg(test)]
-mod tests {
-    #[test]
-    fn it_works() {}
-}
+use rustc_serialize::base64;
+
+
+pub const UNPADDED_BASE64: base64::Config = base64::Config {
+    char_set: base64::CharacterSet::Standard,
+    newline: base64::Newline::LF,
+    pad: false,
+    line_length: None,
+};

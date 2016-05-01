@@ -1,6 +1,5 @@
 use std::ops::{Deref, DerefMut};
 
-use rustc_serialize::base64;
 use rustc_serialize::base64::{FromBase64, ToBase64};
 
 use serde;
@@ -8,13 +7,7 @@ use serde::de::Error;
 
 use sodiumoxide::crypto::sign;
 
-
-pub const UNPADDED_BASE64: base64::Config = base64::Config {
-    char_set: base64::CharacterSet::Standard,
-    newline: base64::Newline::LF,
-    pad: false,
-    line_length: None,
-};
+use UNPADDED_BASE64;
 
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]

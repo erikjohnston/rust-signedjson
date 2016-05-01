@@ -151,7 +151,8 @@ mod tests {
     #[test]
     fn from_slice() {
         let bytes = br#"{"old_verify_keys":{},"server_name":"jki.re","signatures":{"jki.re":{"ed25519:auto":"X2t7jN0jaJsiZWp57da9GqmQ874QFbukCMSqc5VclaB+2n4i8LPcZDkD6+fzg4tkfpSsiIDogkY4HWv1cnGhAg"}},"tls_fingerprints":[{"sha256":"Big0aXVWZ/m0oEcHddgP4hTriTEvb4Jx6592W1mB5i4"}],"valid_until_ts":1462110302047,"verify_keys":{"ed25519:auto":{"key":"Sr/Vj3FIqyQ2WjJ9fWpUXRdz6fX4oFAjKrDmu198PnI"}}}"#;
-        let mut frozen: FrozenStruct<SimpleSigned, Value> = FrozenStruct::from_slice(bytes).unwrap();
+        let mut frozen: FrozenStruct<SimpleSigned, Value> = FrozenStruct::from_slice(bytes)
+                                                                .unwrap();
 
         assert_eq!(&frozen.as_canonical()[..], &br#"{"old_verify_keys":{},"server_name":"jki.re","tls_fingerprints":[{"sha256":"Big0aXVWZ/m0oEcHddgP4hTriTEvb4Jx6592W1mB5i4"}],"valid_until_ts":1462110302047,"verify_keys":{"ed25519:auto":{"key":"Sr/Vj3FIqyQ2WjJ9fWpUXRdz6fX4oFAjKrDmu198PnI"}}}"#[..]);
 
