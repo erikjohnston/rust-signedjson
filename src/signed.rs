@@ -4,6 +4,7 @@ use std::marker::PhantomData;
 use std::ops::Deref;
 
 use serde;
+use serde_json;
 
 use sodiumoxide::crypto::sign;
 
@@ -34,8 +35,12 @@ pub trait SignedMut: Signed {
     fn signatures_mut(&mut self) -> &mut SignaturesMut;
 }
 
-pub trait ToCanonical {
-    fn to_canonical(&self) -> Cow<[u8]>;
+pub trait AsCanonical {
+    fn as_canonical(&self) -> Cow<[u8]>;
+}
+
+pub trait GetUnsigned {
+    fn get_unsigned(&self) -> Option<serde_json::Value>;
 }
 
 
