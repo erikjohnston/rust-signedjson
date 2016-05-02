@@ -82,7 +82,7 @@ impl SigningKey {
     }
 
     pub fn verify_detached<T>(&self, sig: &sign::Signature, obj: &T) -> VerifyResultDetached
-        where T: AsCanonical + Signed
+        where T: AsCanonical
     {
         if sign::verify_detached(sig, &obj.as_canonical(), &self.public) {
             VerifyResultDetached::Valid
@@ -152,7 +152,7 @@ impl VerifyKey {
     }
 
     pub fn verify_detached<T>(&self, sig: &sign::Signature, obj: &T) -> VerifyResultDetached
-        where T: AsCanonical + Signed
+        where T: AsCanonical
     {
         if sign::verify_detached(sig, &obj.as_canonical(), &self.public) {
             VerifyResultDetached::Valid
