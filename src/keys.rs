@@ -26,6 +26,13 @@ pub enum VerifyResult {
     Unsigned,
 }
 
+#[must_use]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum VerifyResultDetached {
+    Valid,
+    Invalid,
+}
+
 
 impl SigningKey {
     /// Create the signing key from a standard ED25519 seed
@@ -71,6 +78,16 @@ impl SigningKey {
             }
         } else {
             VerifyResult::Unsigned
+        }
+    }
+
+    pub fn verify_detached<T>(&self, sig: &sign::Signature, obj: &T) -> VerifyResultDetached
+        where T: AsCanonical + Signed
+    {
+        if sign::verify_detached(sig, &obj.as_canonical(), &self.public) {
+            VerifyResultDetached::Valid
+        } else {
+            VerifyResultDetached::Invalid
         }
     }
 }
@@ -131,6 +148,16 @@ impl VerifyKey {
             }
         } else {
             VerifyResult::Unsigned
+        }
+    }
+
+    pub fn verify_detached<T>(&self, sig: &sign::Signature, obj: &T) -> VerifyResultDetached
+        where T: AsCanonical + Signed
+    {
+        if sign::verify_detached(sig, &obj.as_canonical(), &self.public) {
+            VerifyResultDetached::Valid
+        } else {
+            VerifyResultDetached::Invalid
         }
     }
 }
