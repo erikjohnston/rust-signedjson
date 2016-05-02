@@ -6,15 +6,75 @@ use UNPADDED_BASE64;
 use signed::{AsCanonical, Signed, SignedMut};
 
 
+pub trait PublicKey {
+    fn public_key(&self) -> &sign::PublicKey;
 
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct SigningKey {
-    /// Public part of ED25519 signing key
-    pub public: sign::PublicKey,
-    /// Secret part of ED25519 signing key
-    pub secret: sign::SecretKey,
-    /// A unique ID for this signing key.
-    pub key_id: String,
+    fn verify_detached<T>(&self, sig: &sign::Signature, obj: &T) -> VerifyResultDetached
+        where T: AsCanonical
+    {
+        if sign::verify_detached(sig, &obj.as_canonical(), self.public_key()) {
+            VerifyResultDetached::Valid
+        } else {
+            VerifyResultDetached::Invalid
+        }
+    }
+}
+
+pub trait SecretKey {
+    fn secret_key(&self) -> &sign::SecretKey;
+
+    fn sign_detached<T>(&self, obj: &T) -> sign::Signature
+        where T: AsCanonical
+    {
+        sign::sign_detached(&obj.as_canonical(), &self.secret_key())
+    }
+}
+
+pub trait NamedKey {
+    fn entity(&self) -> &str;
+    fn key_id(&self) -> &str;
+}
+
+pub trait NamedPublicKey: PublicKey + NamedKey {
+    fn verify<T>(&self, obj: &T) -> VerifyResult
+        where T: AsCanonical + Signed
+    {
+        if let Some(sig) = obj.signatures().get_signature(self.entity(), self.key_id()) {
+            if sign::verify_detached(sig, &obj.as_canonical(), self.public_key()) {
+                VerifyResult::Valid
+            } else {
+                VerifyResult::Invalid
+            }
+        } else {
+            VerifyResult::Unsigned
+        }
+    }
+}
+
+impl<T> NamedPublicKey for T where T: PublicKey + NamedKey {}
+
+pub trait NamedSecretKey: SecretKey + NamedKey {
+    fn sign<T>(&self, obj: &mut T)
+        where T: AsCanonical + SignedMut
+    {
+        let sig = sign::sign_detached(&obj.as_canonical(), self.secret_key());
+        obj.signatures_mut().add_signature(self.entity(), self.key_id(), sig);
+    }
+}
+
+impl<T> NamedSecretKey for T where T: SecretKey + NamedKey {}
+
+
+impl PublicKey for sign::PublicKey {
+    fn public_key(&self) -> &sign::PublicKey {
+        &self
+    }
+}
+
+impl SecretKey for sign::SecretKey {
+    fn secret_key(&self) -> &sign::SecretKey {
+        &self
+    }
 }
 
 
@@ -34,15 +94,31 @@ pub enum VerifyResultDetached {
 }
 
 
-impl SigningKey {
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SigningKeyPair {
+    /// Public part of ED25519 signing key
+    pub public: sign::PublicKey,
+    /// Secret part of ED25519 signing key
+    pub secret: sign::SecretKey,
+    /// A unique ID for this signing key.
+    pub key_id: String,
+    pub entity: String,
+}
+
+
+impl SigningKeyPair {
     /// Create the signing key from a standard ED25519 seed
-    pub fn from_seed(seed: &[u8], key_id: String) -> Option<SigningKey> {
+    pub fn from_seed<E, K>(seed: &[u8], entity: E, key_id: K) -> Option<SigningKeyPair>
+        where E: Into<String>,
+              K: Into<String>
+    {
         if let Some(seed) = sign::Seed::from_slice(seed) {
             let (public, secret) = sign::keypair_from_seed(&seed);
-            Some(SigningKey {
+            Some(SigningKeyPair {
                 public: public,
                 secret: secret,
-                key_id: key_id,
+                key_id: key_id.into(),
+                entity: entity.into(),
             })
         } else {
             None
@@ -53,42 +129,26 @@ impl SigningKey {
     pub fn public_key_b64(&self) -> String {
         self.public.0.to_base64(UNPADDED_BASE64)
     }
+}
 
-    pub fn sign<T>(&self, entity: &str, obj: &mut T)
-        where T: AsCanonical + SignedMut
-    {
-        let sig = sign::sign_detached(&obj.as_canonical(), &self.secret);
-        obj.signatures_mut().add_signature(entity, &self.key_id, sig);
+impl NamedKey for SigningKeyPair {
+    fn entity(&self) -> &str {
+        &self.entity
     }
-
-    pub fn sign_detached<T>(&self, obj: &T) -> sign::Signature
-        where T: AsCanonical
-    {
-        sign::sign_detached(&obj.as_canonical(), &self.secret)
+    fn key_id(&self) -> &str {
+        &self.key_id
     }
+}
 
-    pub fn verify<T>(&self, entity: &str, obj: &mut T) -> VerifyResult
-        where T: AsCanonical + Signed
-    {
-        if let Some(sig) = obj.signatures().get_signature(entity, &self.key_id) {
-            if sign::verify_detached(sig, &obj.as_canonical(), &self.public) {
-                VerifyResult::Valid
-            } else {
-                VerifyResult::Invalid
-            }
-        } else {
-            VerifyResult::Unsigned
-        }
+impl SecretKey for SigningKeyPair {
+    fn secret_key(&self) -> &sign::SecretKey {
+        &self.secret
     }
+}
 
-    pub fn verify_detached<T>(&self, sig: &sign::Signature, obj: &T) -> VerifyResultDetached
-        where T: AsCanonical
-    {
-        if sign::verify_detached(sig, &obj.as_canonical(), &self.public) {
-            VerifyResultDetached::Valid
-        } else {
-            VerifyResultDetached::Invalid
-        }
+impl PublicKey for SigningKeyPair {
+    fn public_key(&self) -> &sign::PublicKey {
+        &self.public
     }
 }
 
@@ -99,35 +159,45 @@ pub struct VerifyKey {
     pub public: sign::PublicKey,
     /// A unique ID for this key.
     pub key_id: String,
+    pub entity: String,
 }
 
 impl VerifyKey {
     /// Create the verify key from bytes
-    pub fn from_slice(slice: &[u8], key_id: String) -> Option<VerifyKey> {
+    pub fn from_slice<E, K>(slice: &[u8], entity: E, key_id: K) -> Option<VerifyKey>
+        where E: Into<String>,
+              K: Into<String>
+    {
         sign::PublicKey::from_slice(slice).map(|public_key| {
             VerifyKey {
                 public: public_key,
-                key_id: key_id,
+                entity: entity.into(),
+                key_id: key_id.into(),
             }
         })
     }
 
     /// Create the verfiy key from Base64 encoded bytes.
-    pub fn from_b64(b64: &[u8], key_id: String) -> Option<VerifyKey> {
+    pub fn from_b64<E, K>(b64: &[u8], entity: E, key_id: K) -> Option<VerifyKey>
+        where E: Into<String>,
+              K: Into<String>
+    {
         b64.from_base64()
            .ok()
            .and_then(|slice| sign::PublicKey::from_slice(&slice))
            .map(|public_key| {
                VerifyKey {
                    public: public_key,
-                   key_id: key_id,
+                   entity: entity.into(),
+                   key_id: key_id.into(),
                }
            })
     }
 
-    pub fn from_signing_key(signing_key: &SigningKey) -> VerifyKey {
+    pub fn from_signing_key(signing_key: &SigningKeyPair) -> VerifyKey {
         VerifyKey {
             public: signing_key.public,
+            entity: signing_key.entity.clone(),
             key_id: signing_key.key_id.clone(),
         }
     }
@@ -136,29 +206,20 @@ impl VerifyKey {
     pub fn public_key_b64(&self) -> String {
         self.public.0.to_base64(UNPADDED_BASE64)
     }
+}
 
-    pub fn verify<T>(&self, entity: &str, obj: &T) -> VerifyResult
-        where T: AsCanonical + Signed
-    {
-        if let Some(sig) = obj.signatures().get_signature(entity, &self.key_id) {
-            if sign::verify_detached(sig, &obj.as_canonical(), &self.public) {
-                VerifyResult::Valid
-            } else {
-                VerifyResult::Invalid
-            }
-        } else {
-            VerifyResult::Unsigned
-        }
+impl NamedKey for VerifyKey {
+    fn entity(&self) -> &str {
+        &self.entity
     }
+    fn key_id(&self) -> &str {
+        &self.key_id
+    }
+}
 
-    pub fn verify_detached<T>(&self, sig: &sign::Signature, obj: &T) -> VerifyResultDetached
-        where T: AsCanonical
-    {
-        if sign::verify_detached(sig, &obj.as_canonical(), &self.public) {
-            VerifyResultDetached::Valid
-        } else {
-            VerifyResultDetached::Invalid
-        }
+impl PublicKey for VerifyKey {
+    fn public_key(&self) -> &sign::PublicKey {
+        &self.public
     }
 }
 
@@ -179,22 +240,23 @@ mod tests {
         let frozen: SimpleFrozen = FrozenStruct::from_slice(bytes).unwrap();
 
         let key_b64 = b"Sr/Vj3FIqyQ2WjJ9fWpUXRdz6fX4oFAjKrDmu198PnI";
-        let key = VerifyKey::from_b64(key_b64, String::from("ed25519:auto")).unwrap();
-        assert_eq!(key.verify("jki.re", &frozen), VerifyResult::Valid);
-        assert_eq!(key.verify("example.com", &frozen), VerifyResult::Unsigned);
+        let key = VerifyKey::from_b64(key_b64, "jki.re", "ed25519:auto").unwrap();
+        let key2 = VerifyKey::from_b64(key_b64, "example.com", "ed25519:auto").unwrap();
+        assert_eq!(key.verify(&frozen), VerifyResult::Valid);
+        assert_eq!(key2.verify(&frozen), VerifyResult::Unsigned);
 
-        let key2_b64 = b"Sr/Vj3FIqyQ2WjJ9fWpUXRdz6fX4oFAjKrDmu198Pna";
-        let key2 = VerifyKey::from_b64(key2_b64, String::from("ed25519:auto")).unwrap();
-        assert_eq!(key2.verify("jki.re", &frozen), VerifyResult::Invalid);
+        let key3_b64 = b"Sr/Vj3FIqyQ2WjJ9fWpUXRdz6fX4oFAjKrDmu198Pna";
+        let key3 = VerifyKey::from_b64(key3_b64, "jki.re", "ed25519:auto").unwrap();
+        assert_eq!(key3.verify(&frozen), VerifyResult::Invalid);
     }
 
     #[test]
     fn sign() {
         let seed = "YJDBA9Xnr2sVqXD9Vj7XVUnmFZcZrlw8Md7kMW+3XA1".from_base64().unwrap();
-        let sig_key = SigningKey::from_seed(&seed, String::from("ed25519:1")).unwrap();
+        let sig_key = SigningKeyPair::from_seed(&seed, "domain", "ed25519:1").unwrap();
 
         let mut frozen: SimpleFrozen = FrozenStruct::from_slice(b"{}").unwrap();
-        sig_key.sign("domain", &mut frozen);
+        sig_key.sign(&mut frozen);
 
         assert_eq!(
             &frozen.serialize().unwrap()[..],
