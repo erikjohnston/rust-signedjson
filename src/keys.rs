@@ -54,6 +54,12 @@ impl SigningKey {
         obj.signatures_mut().add_signature(entity, &self.key_id, sig);
     }
 
+    pub fn sign_detached<T>(&self, obj: &mut T) -> sign::Signature
+        where T: AsCanonical
+    {
+        sign::sign_detached(&obj.as_canonical(), &self.secret)
+    }
+
     pub fn verify<T>(&self, entity: &str, obj: &mut T) -> VerifyResult
         where T: AsCanonical + Signed
     {
