@@ -211,7 +211,7 @@ impl<D: serde::de::Deserializer> serde::de::Visitor for SimpleSignedVisitor<D> {
                 None => {
                     match visitor.missing_field("signatures") {
                         Ok(value) => value,
-                        Err(value) => return Err(value),
+                        Err(_) => BTreeMap::new(),
                     }
                 }
             };
